@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import {
-  ecsign,
-  toRpcSig,
-  keccak256 as keccak256_buffer,
-} from "ethereumjs-util";
 const { Web3 } = require("web3");
 
 function App() {
@@ -15,8 +10,8 @@ function App() {
     "0x6de175459DE142b3bcd1B63d3E07F21Da48c7c14"
   );
   const [scaAddress, setSCAaddress] = useState(ethers.ZeroAddress);
-  const [method, setMethod] = useState("");
-  const [inputs, setInputs] = useState([""]);
+  const [method, setMethod] = useState("setMessage");
+  const [inputs, setInputs] = useState([`testMessage`]);
   const [callData, setCallData] = useState("");
   const [userOp, setUserOp] = useState({
     sender: "0x74dbFB665536AcE9E65b6c9ff5bE1D99AA78eEA8",
@@ -45,18 +40,27 @@ function App() {
     if (web3) getChainId();
     // console.log(ethers.toNumber(chainId))
     if (account === ethers.ZeroAddress) getAccounts();
-    if (scaAddress === ethers.ZeroAddress) getSCAAddress();
+    if (account !== ethers.ZeroAddress && scaAddress === ethers.ZeroAddress) getSCAAddress();
   }, [web3, account, scaAddress]);
 
   const getChainId = async () => {
     let currentChain = await window.ethereum.request({ method: "eth_chainId" });
     setChainId(currentChain);
   };
+
   const getAccounts = async () => {
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
-    if (accounts) setAccount(accounts[0]);
+    try {
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({
+          method: 'eth_requestAccounts',
+        });
+        setAccount(accounts[0]);
+      } else {
+        alert('INSTALL METAMASK!!');
+      }
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const fetchEntryPoint = async () => {
@@ -97,10 +101,10 @@ function App() {
 
   const deploySCA = async () => {
     const senderAddress = await getSCAAddress();
-    const initcode =
-      "0x9406cc6185a346906296840746125a0e449764545fbfb9cf000000000000000000000000" +
-      account.slice(2) +
-      "0000000000000000000000000000000000000000000000000000000000000000";
+    // const initcode =
+    //   "0x9406cc6185a346906296840746125a0e449764545fbfb9cf000000000000000000000000" +
+    //   account.slice(2)+"0000000000000000000000000000000000000000000000000000000000000000";
+    const initcode = process.env.REACT_APP_ACCOUNT_FACTORY_ADDRESS+"5fbfb9cf000000000000000000000000"+account.slice(2)+"0000000000000000000000000000000000000000000000000000000000000000"
     const params = {
       sender: senderAddress,
       nonce: "0x0",
@@ -133,6 +137,7 @@ function App() {
     // console.log("nonce : ", nonce);
     let nn = web3.utils.toHex(nonce);
     setNonce(nn);
+    setUserOp({...userOp, nonce:nn})
     return nn;
   };
 
@@ -147,6 +152,7 @@ function App() {
       new ethers.Interface(msgabi).encodeFunctionData(method, [inputs]),
     ]);
     setCallData(calldata);
+    setUserOp({...userOp, callData:calldata})
     return calldata;
   };
 
@@ -174,6 +180,10 @@ function App() {
     try {
       const gasResult = await response.json();
       if (gasResult.result) {
+        setUserOp({...userOp, 
+          preVerificationGas:gasResult.result.preVerificationGas,
+          verificationGasLimit:gasResult.result.verificationGasLimit,
+          callGasLimit:gasResult.result.callGasLimit})
         setGas(gasResult.result);
         return gasResult.result;
       }
@@ -226,16 +236,7 @@ function App() {
     return Object.assign(Object.assign({}, op), { signature });
   };
 
-  const sendOp = async (op) => {
-    // let op = userOp
-    // let calld = await createCallData()
-    // let nn = await getNonce()
-    // op = { ...op, callData: calld, nonce: nn }
-    // let gg = await fetchEstimateGas(op)
-    // if (gg) op = { ...op, preVerificationGas: gg.preVerificationGas, verificationGasLimit: gg.verificationGasLimit, callGasLimit: gg.callGasLimit }
-    // const op = await signUserOp();
-    // console.log(op);
-    // setUserOp(op);
+  const sendOp = async () => {
     const options = {
       method: "POST",
       headers: {
@@ -246,7 +247,7 @@ function App() {
         id: 1,
         jsonrpc: "2.0",
         method: "eth_sendUserOperation",
-        params: [op, entryAddress],
+        params: [userOp, entryAddress],
       }),
     };
     // console.log(options);
@@ -342,12 +343,14 @@ function App() {
             onChange={(e) => {
               setTargetAddr(e.target.value);
             }}
+            value={targetAddr}
           ></input>
           <br />
           <label>method</label>
           <br />
           <input
             name="method"
+            value={method}
             onChange={(e) => {
               setMethod(e.target.value);
             }}
@@ -369,6 +372,9 @@ function App() {
           >
             createCallData
           </button>
+          <input value={callData} name="callData" onChange={(e)=>{
+            setCallData(e.target.value)
+          }}></input>
         </p>
         <p>
           <button
@@ -397,6 +403,7 @@ function App() {
             sendOp
           </button>
         </p>
+        <textarea onChange={(e)=>{setUserOp(e.target.value)}} value={JSON.stringify(userOp,null, 2)}/>
       </header>
     </div>
   );
