@@ -166,8 +166,8 @@ function App() {
   };
 
   const fetchEstimateGas = async (params) => {
-    await getNonce();
-    params = { ...params, nonce: nonce };
+    // await getNonce();
+    // params = { ...params, nonce: nonce };
     // console.log(params)
     const options = {
       method: "POST",
@@ -221,30 +221,7 @@ function App() {
   const sendOp = async (signed) => {
     let param = signed?signed:userOp
     console.log(param)
-    const options = {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_sendUserOperation",
-        params: [param, entryAddress],
-      }),
-    };
-    // console.log(options);
-    fetch(
-      `https://polygon-mumbai.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`,
-      options
-    )
-      .then((response) => response.json())
-      .then((response) => {
-        console.log(response)
-        return response
-      })
-      .catch((err) => console.error(err));
+    const res = await fetchAlchemy("eth_sendUserOperation", param)
   };
 
   async function getUserOpHash(userOp) {
@@ -295,7 +272,41 @@ function App() {
   }
 
   const fetchAlchemy =  async (method, params) => {
-    if(params.sender === ethers.ZeroAddress) getSCAAddress()
+    if(params.sender === ethers.ZeroAddress) {
+      let sca = await getSCAAddress()
+      setSCAaddress(sca)
+      params = {...params, sender: sca}
+    }
+    if(params.nonce === "0x") {
+      let nc = await getNonce()
+      setNonce(nc)
+      params = {...params, nonce: nc}
+    }
+    let ent = ethers.ZeroAddress
+    if(entryAddress === ethers.ZeroAddress){
+      ent = await fetchEntryPoint()
+      setEntryAddress(ent)
+    }
+    const options = {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: method,
+        params: [params, entryAddress === ethers.ZeroAddress ? ent : entryAddress],
+      }),
+    }
+    fetch(`https://polygon-mumbai.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`, options)
+    .then((response) => response.json())
+    .then((response) => {
+      console.log("response : ",response)
+      return response
+    })
+    .catch((err) => console.error(err));
   }
 
   return (
@@ -319,19 +330,10 @@ function App() {
         <label>{`gas : ${gas ? JSON.stringify(gas) : ""}`}</label>
         <br />
         <p>
-          
-        </p>
-        <p>
           <button onClick={deploySCA}>deploySCA</button>
         </p>
         <p>
-          <button
-            onClick={() => {
-              getNonce();
-            }}
-          >
-            getNonce
-          </button>
+          <button onClick={getNonce}>getNonce</button>
         </p>
         <p>
           <label>targetContractAddress</label>
@@ -402,6 +404,7 @@ function App() {
           </button>
         </p>
         <GetOwnerBTN scaAddress={scaAddress}/>
+        <br/>
         <textarea onChange={(e)=>{setUserOp(e.target.value)}} value={JSON.stringify(userOp,null, 2)}/>
       </header>
     </div>
