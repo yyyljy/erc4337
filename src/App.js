@@ -4,9 +4,10 @@ import GetOwnerBTN from "./components/atoms/GetOwnerBTN";
 const { Web3 } = require("web3");
 
 function App() {
-  const entryAddress = process.env.REACT_APP_ENTRYPOINT_ADDRESS;
   const [web3, setWeb3] = useState(new Web3(window.ethereum));
   const [account, setAccount] = useState(ethers.ZeroAddress);
+  // const entryAddress = process.env.REACT_APP_ENTRYPOINT_ADDRESS;
+  const [entryAddress, setEntryAddress] = useState(ethers.ZeroAddress)
   const [targetAddr, setTargetAddr] = useState(
     "0x6de175459DE142b3bcd1B63d3E07F21Da48c7c14"
   );
@@ -15,7 +16,7 @@ function App() {
   const [inputs, setInputs] = useState([`testMessage`]);
   const [callData, setCallData] = useState("");
   const [userOp, setUserOp] = useState({
-    sender: "0x74dbFB665536AcE9E65b6c9ff5bE1D99AA78eEA8",
+    sender: ethers.ZeroAddress,
     nonce: "0x",
     initCode: "0x",
     callData: "0x",
@@ -38,11 +39,11 @@ function App() {
 
   useEffect(() => {
     if (!web3) setWeb3(new Web3(window.ethereum));
-    if (web3) getChainId();
+    if (account !== ethers.ZeroAddress) getChainId();
     // console.log(ethers.toNumber(chainId))
-    if (account === ethers.ZeroAddress) getAccounts();
+    // if (account === ethers.ZeroAddress) getAccounts();
     if (account !== ethers.ZeroAddress && scaAddress === ethers.ZeroAddress) getSCAAddress();
-  }, [web3, account, scaAddress]);
+  }, [account]);
 
   const getChainId = async () => {
     let currentChain = await window.ethereum.request({ method: "eth_chainId" });
@@ -78,13 +79,16 @@ function App() {
       }),
     };
 
-    fetch(
+    const res = await fetch(
       `https://polygon-mumbai.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`,
       options
-    )
-      .then((response) => response.json())
-      .then((response) => console.log(response))
-      .catch((err) => console.error(err));
+    ).catch((err) => console.error(err));
+    try{
+      let addr = (await res.json()).result
+      setEntryAddress(addr[0])
+    }catch{
+      console.log("Fetch Entry Error")
+    }
   };
 
   const getSCAAddress = async () => {
@@ -95,31 +99,34 @@ function App() {
       process.env.REACT_APP_ACCOUNT_FACTORY_ADDRESS
     );
     const res = await factoryContract.methods.getAddress(account, "0").call();
-    if (res) setSCAaddress(res);
+    if (res) {
+      setUserOp({...userOp, sender: res})
+      setSCAaddress(res)
+    }
     // console.log(res)
     return res;
   };
 
   const deploySCA = async () => {
-    const senderAddress = await getSCAAddress();
-    // const initcode =
-    //   "0x9406cc6185a346906296840746125a0e449764545fbfb9cf000000000000000000000000" +
-    //   account.slice(2)+"0000000000000000000000000000000000000000000000000000000000000000";
+    let sender = scaAddress
+    if(sender === ethers.ZeroAddress) sender = await getSCAAddress();
     const initcode = process.env.REACT_APP_ACCOUNT_FACTORY_ADDRESS+"5fbfb9cf000000000000000000000000"+account.slice(2)+"0000000000000000000000000000000000000000000000000000000000000000"
-    const params = {
-      sender: senderAddress,
-      nonce: "0x0",
-      initCode: initcode,
-      callData: "0x",
-      callGasLimit: "0x238c",
-      verificationGasLimit: "0x60b15",
-      preVerificationGas: "0xab90",
-      maxFeePerGas: "0xfffffffff",
-      maxPriorityFeePerGas: "0xffffffff",
-      signature:
-        "0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c",
-      paymasterAndData: "0x",
-    };
+    // const params = {
+    //   sender: scaAddress,
+    //   nonce: "0x0",
+    //   initCode: initcode,
+    //   callData: "0x",
+    //   callGasLimit: "0x238c",
+    //   verificationGasLimit: "0x60b15",
+    //   preVerificationGas: "0xab90",
+    //   maxFeePerGas: "0xfffffffff",
+    //   maxPriorityFeePerGas: "0xffffffff",
+    //   signature:
+    //     "0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c",
+    //   paymasterAndData: "0x",
+    // };
+    const params = {...userOp, sender:sender, nonce:"0x0", initCode:initcode}
+    setUserOp(params)
     const res = await fetchEstimateGas(params);
     let op = {
       ...params,
@@ -127,8 +134,9 @@ function App() {
       verificationGasLimit: res.verificationGasLimit,
       callGasLimit: res.callGasLimit,
     };
+    setUserOp(op)
     const signed = await signUserOp(op);
-    await sendOp(signed);
+    const userOpHash = await sendOp(signed);
   };
 
   const getNonce = async () => {
@@ -192,19 +200,6 @@ function App() {
     } catch {
       return false;
     }
-    // const op = {
-    //   sender: scaAddress,
-    //   nonce: "0x0",
-    //   initCode: "0x",
-    //   callData: calldata,
-    //   callGasLimit:'0xfffff',
-    //   verificationGasLimit:'0xfffff',
-    //   preVerificationGas:'0xfffff',
-    //   maxFeePerGas: '0xfffff',
-    //   maxPriorityFeePerGas: '0xfffff',
-    //   paymasterAndData: '0x',
-    //   signature: '0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c',
-    // }
     // {
     //   "jsonrpc": "2.0",
     //   "id": 1,
@@ -223,7 +218,9 @@ function App() {
     return Object.assign(Object.assign({}, op), { signature });
   };
 
-  const sendOp = async () => {
+  const sendOp = async (signed) => {
+    let param = signed?signed:userOp
+    console.log(param)
     const options = {
       method: "POST",
       headers: {
@@ -234,7 +231,7 @@ function App() {
         id: 1,
         jsonrpc: "2.0",
         method: "eth_sendUserOperation",
-        params: [userOp, entryAddress],
+        params: [param, entryAddress],
       }),
     };
     // console.log(options);
@@ -243,7 +240,10 @@ function App() {
       options
     )
       .then((response) => response.json())
-      .then((response) => console.log(response))
+      .then((response) => {
+        console.log(response)
+        return response
+      })
       .catch((err) => console.error(err));
   };
 
@@ -294,21 +294,32 @@ function App() {
     );
   }
 
+  const fetchAlchemy =  async (method, params) => {
+    if(params.sender === ethers.ZeroAddress) getSCAAddress()
+  }
+
   return (
     <div className="App">
       <header className="App-header">
+        <p>
+          <button onClick={getAccounts}>지갑연결</button>
+          <button onClick={fetchEntryPoint}>fetchEntryPoint</button>
+          <button onClick={getNonce}>getNonce</button>
+        </p>
         <label>{`ChainId : ${chainId}`}</label>
         <br />
         <label>{`Account : ${account}`}</label>
         <br />
         <label>{`SCA : ${scaAddress}`}</label>
         <br />
+        <label>{`EntryPointAddress : ${entryAddress}`}</label>
+        <br />
         <label>{`nonce : ${nonce}`}</label>
         <br />
         <label>{`gas : ${gas ? JSON.stringify(gas) : ""}`}</label>
         <br />
         <p>
-          <button onClick={fetchEntryPoint}>fetchEntryPoint</button>
+          
         </p>
         <p>
           <button onClick={deploySCA}>deploySCA</button>
@@ -390,9 +401,7 @@ function App() {
             sendOp
           </button>
         </p>
-        <p>
         <GetOwnerBTN scaAddress={scaAddress}/>
-        </p>
         <textarea onChange={(e)=>{setUserOp(e.target.value)}} value={JSON.stringify(userOp,null, 2)}/>
       </header>
     </div>
